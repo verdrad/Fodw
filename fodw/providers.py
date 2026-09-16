@@ -104,30 +104,23 @@ class YouTubeProvider:
         return result[:self.limit]
 
     async def autocomplete(self, query, limit=5):
-        """Busca títulos planos para Discord; nunca resuelve formatos ni audio."""
+        """Obtiene sugerencias de texto; no inicia yt-dlp ni resuelve audio."""
         if not self.enabled or len(query.strip()) < 2:
             return []
-        args = [sys.executable, "-m", "yt_dlp", "--ignore-config", "--no-warnings", "--quiet",
-                "--flat-playlist", "--skip-download", "--dump-single-json", "--playlist-end", str(limit),
-                "--socket-timeout", "1", "--retries", "0", "--extractor-retries", "0",
-                "--no-check-formats", "--", f"ytsearch{limit}:{query.strip()}"]
         try:
-            proc = await asyncio.create_subprocess_exec(*args, stdout=asyncio.subprocess.PIPE,
-                                                        stderr=asyncio.subprocess.DEVNULL)
-            try:
-                output, _ = await asyncio.wait_for(proc.communicate(), timeout=1.5)
-            finally:
-                if proc.returncode is None:
-                    proc.kill()
-                    await proc.wait()
-            data = json.loads(output) if proc.returncode == 0 and output else {}
+            timeout = aiohttp.ClientTimeout(total=0.8, connect=0.4)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get("https://suggestqueries.google.com/complete/search",
+                                       params={"client": "firefox", "ds": "yt", "q": query.strip()}) as response:
+                    if response.status != 200:
+                        return []
+                    data = await response.json(content_type=None)
+            suggestions = data[1] if isinstance(data, list) and len(data) > 1 else []
             results = []
-            for item in data.get("entries", []):
-                video = item.get("id", "")
-                if re.fullmatch(r"[\w-]{11}", video):
-                    results.append((str(item.get("title") or "Sin título")[:200],
-                                    str(item.get("uploader") or item.get("channel") or "Artista desconocido")[:120],
-                                    "https://www.youtube.com/watch?v=" + video))
+            for suggestion in suggestions:
+                value = str(suggestion).strip()
+                if value and ":" not in value and value not in {item[2] for item in results}:
+                    results.append((value[:200], "YouTube", value[:500]))
             return results[:limit]
         except Exception:
             return []

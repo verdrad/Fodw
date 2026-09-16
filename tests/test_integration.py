@@ -13,12 +13,29 @@ from fodw.__main__ import run_bot
 from fodw.discord_app import Controls
 from fodw.position import parse_position, progress_bar
 from fodw.audio import FFmpegSourceFactory
+from fodw.providers import YouTubeProvider
 from fodw.now_playing import NowPlayingPanel
 from datetime import datetime, timezone, timedelta
 from types import SimpleNamespace
 
 
 class ProviderTests(unittest.TestCase):
+    def test_light_autocomplete_uses_suggestions_endpoint_without_ytdlp(self):
+        class Response:
+            status = 200
+            async def __aenter__(self): return self
+            async def __aexit__(self, *args): pass
+            async def json(self, **kwargs): return ["numb", ["numb", "numb live", "numb acoustic"]]
+        class Session:
+            def __init__(self, **kwargs): self.kwargs = kwargs
+            async def __aenter__(self): return self
+            async def __aexit__(self, *args): pass
+            def get(self, *args, **kwargs): return Response()
+        with patch("fodw.providers.aiohttp.ClientSession", Session):
+            results = asyncio.run(YouTubeProvider(True, 100).autocomplete("numb", 5))
+        self.assertEqual(results[0], ("numb", "YouTube", "numb"))
+        self.assertEqual(len(results), 3)
+
     def test_controls_stop_is_view_method_not_button(self):
         self.assertIs(Controls.stop, discord.ui.View.stop)
         self.assertIn("stop_button", Controls.__view_children_items__)
