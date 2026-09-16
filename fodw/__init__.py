@@ -1,0 +1,1 @@
+"""Fodw: Discord music bot."""
