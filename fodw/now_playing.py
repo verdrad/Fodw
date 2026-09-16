@@ -74,7 +74,7 @@ class NowPlayingPanel:
             view = self.make_view() if self.player.queue.current and not self.player.closed else None
             try:
                 if self.message is None:
-                    self.message = await self.channel.send(embed=embed, view=view)
+                    self.message = await self.channel.send(embed=embed, view=view, silent=True)
                 else:
                     try:
                         await self.message.edit(embed=embed, view=view)
@@ -84,7 +84,7 @@ class NowPlayingPanel:
                             if view:
                                 view.stop()
                             return
-                        self.message = await self.channel.send(embed=embed, view=view)
+                        self.message = await self.channel.send(embed=embed, view=view, silent=True)
             except Exception:
                 if view:
                     view.stop()

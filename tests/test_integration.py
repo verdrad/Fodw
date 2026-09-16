@@ -1,4 +1,5 @@
 """Offline adapter checks; install project dependencies before running."""
+import asyncio
 import unittest
 from unittest.mock import AsyncMock, Mock, patch
 import discord
@@ -55,6 +56,7 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
         player = SimpleNamespace(queue=SimpleNamespace(current=Track("A", "Artist", "https://x", 120, requester=1), loop=Loop.OFF, items=[]), closed=False, paused_at=None, progress=0, volume=50)
         panel = NowPlayingPanel(channel, player, lambda: None)
         await panel.refresh(force=True)
+        self.assertTrue(channel.send.await_args_list[0].kwargs["silent"])
         player.queue.current = Track("B", "Artist", "https://x", 120, requester=1)
         await panel.new_track()
         self.assertEqual(channel.send.await_count, 2)
@@ -84,6 +86,8 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
         panel.last_move -= 120
         await panel.refresh()
         self.assertEqual(channel.send.await_count, 2)
+        self.assertTrue(channel.send.await_args_list[0].kwargs["silent"])
+        self.assertTrue(channel.send.await_args_list[1].kwargs["silent"])
         old.delete.assert_awaited_once()
     def test_controls_have_two_rows_and_spanish_labels(self):
         names = set(Controls.__view_children_items__)
@@ -172,6 +176,25 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
                 result = await callback(SimpleNamespace(user=SimpleNamespace(id=7)), "numb li")
                 self.assertEqual(result[0].value, "https://www.youtube.com/watch?v=abcdefghijk")
                 self.assertEqual(resolver.args, ("numb li", 7, 5))
+            finally:
+                await bot.close()
+
+    async def test_play_autocomplete_timeout_and_error_are_empty(self):
+        with TemporaryDirectory() as tmp:
+            config = Config("fake", "ffmpeg", str(Path(tmp) / "db"), 50, 180, 60, 100, False, "", "", None)
+            bot = Fodw(config)
+            class SlowResolver:
+                async def resolve(self, *args):
+                    await asyncio.sleep(2.1)
+            try:
+                callback = bot.tree.get_command("play")._params["query"].autocomplete
+                bot.resolver = SlowResolver()
+                self.assertEqual(await callback(SimpleNamespace(user=SimpleNamespace(id=7)), "numb li"), [])
+                class BrokenResolver:
+                    async def resolve(self, *args):
+                        raise RuntimeError("provider failure")
+                bot.resolver = BrokenResolver()
+                self.assertEqual(await callback(SimpleNamespace(user=SimpleNamespace(id=7)), "numb li"), [])
             finally:
                 await bot.close()
 
