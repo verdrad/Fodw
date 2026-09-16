@@ -166,6 +166,8 @@ class Fodw(discord.Client):
         self.session = None
         self.pending: set[int] = set()
         self.panels = {}
+        self._fodw_closed = False
+        self._shutdown_task = None
         self.register_commands()
         self.tree.on_error = self.report
 
@@ -290,6 +292,18 @@ class Fodw(discord.Client):
         await self.wait_until_ready()
 
     async def close(self):
+        if self._fodw_closed:
+            return
+        if self._shutdown_task is None:
+            self._shutdown_task = asyncio.create_task(self._close_all())
+        try:
+            await asyncio.shield(self._shutdown_task)
+        except asyncio.CancelledError:
+            # The shutdown task keeps running; waiters may retry close().
+            await asyncio.shield(self._shutdown_task)
+            raise
+
+    async def _close_all(self):
         self.cleanup_players.cancel()
         self.update_panels.cancel()
         await self.manager.close()
@@ -301,6 +315,7 @@ class Fodw(discord.Client):
             await self.session.close()
         self.repo.close()
         await super().close()
+        self._fodw_closed = True
 
     def register_commands(self):
         tree = self.tree

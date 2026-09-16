@@ -9,6 +9,7 @@ from fodw.providers import youtube_query, TrackResolver
 from fodw.queue import MusicError, Track, Loop
 from fodw.config import Config
 from fodw.discord_app import Fodw
+from fodw.__main__ import run_bot
 from fodw.discord_app import Controls
 from fodw.position import parse_position, progress_bar
 from fodw.audio import FFmpegSourceFactory
@@ -50,6 +51,51 @@ class ProviderTests(unittest.TestCase):
 
 
 class AdapterTests(unittest.IsolatedAsyncioTestCase):
+    async def test_run_bot_awaits_close_when_start_is_interrupted(self):
+        bot = Mock()
+        bot.start = AsyncMock(side_effect=KeyboardInterrupt)
+        bot.close = AsyncMock()
+        await run_bot(bot, "placeholder")
+        bot.close.assert_awaited_once()
+
+    async def test_fodw_close_is_idempotent(self):
+        with TemporaryDirectory() as tmp:
+            config = Config("fake", "ffmpeg", str(Path(tmp) / "db"), 50, 180, 60, 100, False, "", "", None)
+            bot = Fodw(config)
+            try:
+                with patch.object(bot.manager, "close", new_callable=AsyncMock) as manager_close, \
+                     patch.object(discord.Client, "close", new_callable=AsyncMock) as client_close:
+                    await bot.close()
+                    await bot.close()
+                    manager_close.assert_awaited_once()
+                    client_close.assert_awaited_once()
+            finally:
+                bot.repo.close()
+
+    async def test_close_can_be_retried_after_waiter_cancellation(self):
+        with TemporaryDirectory() as tmp:
+            config = Config("fake", "ffmpeg", str(Path(tmp) / "db"), 50, 180, 60, 100, False, "", "", None)
+            bot = Fodw(config)
+            started = asyncio.Event(); release = asyncio.Event()
+            async def slow_close():
+                started.set()
+                await release.wait()
+                bot._fodw_closed = True
+            bot._close_all = slow_close
+            try:
+                waiter = asyncio.create_task(bot.close())
+                await started.wait()
+                waiter.cancel()
+                release.set()
+                with self.assertRaises(asyncio.CancelledError):
+                    await waiter
+                self.assertTrue(bot._fodw_closed)
+                await bot.close()
+                self.assertTrue(bot._fodw_closed)
+                self.assertTrue(bot._shutdown_task.done())
+            finally:
+                bot.repo.close()
+
     async def test_panel_new_track_deletes_old_and_posts_once(self):
         message = Mock(created_at=datetime.now(timezone.utc)); message.edit = AsyncMock(); message.delete = AsyncMock()
         channel = Mock(); channel.send = AsyncMock(return_value=message)
