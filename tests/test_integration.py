@@ -167,15 +167,15 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
             config = Config("fake", "ffmpeg", str(Path(tmp) / "db"), 50, 180, 60, 100, False, "", "", None)
             bot = Fodw(config)
             class Resolver:
-                async def resolve(self, query, requester, count):
-                    self.args = (query, requester, count)
-                    return [Track("Numb", "Linkin Park", "https://www.youtube.com/watch?v=abcdefghijk")]
+                async def autocomplete(self, query, count):
+                    self.args = (query, count)
+                    return [("Numb", "Linkin Park", "https://www.youtube.com/watch?v=abcdefghijk")]
             resolver = Resolver(); bot.resolver = resolver
             try:
                 callback = bot.tree.get_command("play")._params["query"].autocomplete
                 result = await callback(SimpleNamespace(user=SimpleNamespace(id=7)), "numb li")
                 self.assertEqual(result[0].value, "https://www.youtube.com/watch?v=abcdefghijk")
-                self.assertEqual(resolver.args, ("numb li", 7, 5))
+                self.assertEqual(resolver.args, ("numb li", 5))
             finally:
                 await bot.close()
 
@@ -184,14 +184,14 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
             config = Config("fake", "ffmpeg", str(Path(tmp) / "db"), 50, 180, 60, 100, False, "", "", None)
             bot = Fodw(config)
             class SlowResolver:
-                async def resolve(self, *args):
-                    await asyncio.sleep(2.1)
+                async def autocomplete(self, *args):
+                    await asyncio.sleep(2.8)
             try:
                 callback = bot.tree.get_command("play")._params["query"].autocomplete
                 bot.resolver = SlowResolver()
                 self.assertEqual(await callback(SimpleNamespace(user=SimpleNamespace(id=7)), "numb li"), [])
                 class BrokenResolver:
-                    async def resolve(self, *args):
+                    async def autocomplete(self, *args):
                         raise RuntimeError("provider failure")
                 bot.resolver = BrokenResolver()
                 self.assertEqual(await callback(SimpleNamespace(user=SimpleNamespace(id=7)), "numb li"), [])

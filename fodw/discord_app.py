@@ -328,10 +328,9 @@ class Fodw(discord.Client):
             if len(text) < 2 or "://" in text:
                 return []
             try:
-                tracks = await asyncio.wait_for(
-                    self.resolver.resolve(text, i.user.id, 5), timeout=2.0)
-                return [app_commands.Choice(name=f"🎵 {t.title} — {t.artist}"[:100], value=t.url)
-                        for t in tracks[:25]]
+                results = await asyncio.wait_for(self.resolver.autocomplete(text, 5), timeout=2.5)
+                return [app_commands.Choice(name=f"🎵 {title} — {artist}"[:100], value=url)
+                        for title, artist, url in results[:5]]
             except Exception:
                 return []
 

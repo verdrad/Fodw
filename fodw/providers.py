@@ -103,6 +103,35 @@ class YouTubeProvider:
             raise MusicError("No encontré canciones disponibles.")
         return result[:self.limit]
 
+    async def autocomplete(self, query, limit=5):
+        """Busca títulos planos para Discord; nunca resuelve formatos ni audio."""
+        if not self.enabled or len(query.strip()) < 2:
+            return []
+        args = [sys.executable, "-m", "yt_dlp", "--ignore-config", "--no-warnings", "--quiet",
+                "--flat-playlist", "--skip-download", "--dump-single-json", "--playlist-end", str(limit),
+                "--socket-timeout", "1", "--retries", "0", "--extractor-retries", "0",
+                "--no-check-formats", "--", f"ytsearch{limit}:{query.strip()}"]
+        try:
+            proc = await asyncio.create_subprocess_exec(*args, stdout=asyncio.subprocess.PIPE,
+                                                        stderr=asyncio.subprocess.DEVNULL)
+            try:
+                output, _ = await asyncio.wait_for(proc.communicate(), timeout=1.5)
+            finally:
+                if proc.returncode is None:
+                    proc.kill()
+                    await proc.wait()
+            data = json.loads(output) if proc.returncode == 0 and output else {}
+            results = []
+            for item in data.get("entries", []):
+                video = item.get("id", "")
+                if re.fullmatch(r"[\w-]{11}", video):
+                    results.append((str(item.get("title") or "Sin título")[:200],
+                                    str(item.get("uploader") or item.get("channel") or "Artista desconocido")[:120],
+                                    "https://www.youtube.com/watch?v=" + video))
+            return results[:limit]
+        except Exception:
+            return []
+
     async def stream(self, track):
         data = await self._extract(youtube_query(track.url), False)
         url = data.get("url", "")
@@ -154,3 +183,8 @@ class TrackResolver:
             tracks = await self.audio.resolve(f"{artist} {title}", requester, 1)
             return [replace(t, source="YouTube · búsqueda por metadatos de Spotify") for t in tracks]
         return await self.audio.resolve(query, requester, count)
+
+    async def autocomplete(self, query, limit=5):
+        if urlparse(query).scheme or urlparse(query).hostname:
+            return []
+        return await self.audio.autocomplete(query, limit)
